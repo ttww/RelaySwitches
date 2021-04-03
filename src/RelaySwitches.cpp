@@ -34,7 +34,7 @@
 #define noELECTRODRAGON_RELAY
 #define noSONOFF_RELAY
 
-#define VERSION          "1.4"
+#define VERSION          "1.5"
 #define MQTT_HELLO       "ESPxx relay MQTT gateway, version " VERSION ", Thomas Welsch, ttww@gmx.de, " __TIME__ " / " __DATE__
 
 #define WIFI_SSID        "M64"
@@ -46,9 +46,8 @@
   #define TYPE_ID                  "electrodragon"
   #define TYPE_STRING              "www.electrodragon.com relay board with optional DHT11/DHT22"
 
-//  #define RELAY_0_GPIO  D6  //  GPIO 12
-//  #define RELAY_1_GPIO  D7  //  GPIO 13
-//  #define DHT_GPIO      D5  //  GPIO 14
+  #define INVERT_RELAY
+  #define INVERT_BUTTON
 
   #define RELAY_0_GPIO  12  //  GPIO 12
   #define RELAY_1_GPIO  13  //  GPIO 13
@@ -56,27 +55,44 @@
 
   #define BTN0_GPIO   0
   #define BTN1_GPIO   2
+
+  static byte Relays[] = { RELAY_0_GPIO, RELAY_1_GPIO };
+  static byte Buttons[] = { BTN0_GPIO, BTN1_GPIO };
 #endif  // ELECTRODRAGON_RELAY
 
 #ifdef SONOFF_RELAY
   #define TYPE_ID                  "sonoff"
   #define TYPE_STRING              "Sonoff basic 10A relay board"
 
+  #define INVERT_RELAY
+  #define INVERT_BUTTON
+  
 /*
 GPIO0 Taster
-GPIO12 Relais (high = on) + LED (blau); LED nur bei S20
+GPIO12 Relay (high = on) + LED (blau); LED nur bei S20
 GPIO13 LED grün (low = on)
 GPIO14 Pin 5 der Stiftleiste – nur Sonoff Switch
 */
 
-
   #define RELAY_0_GPIO  12  //  GPIO 12
-
   #define BTN0_GPIO   0
+
+  static byte Relays[] = { RELAY_0_GPIO  };
+  static byte Buttons[] = { BTN0_GPIO };
+
 
   #define LED0    13
 #endif  // SONOFF_RELAY
 
+#ifdef MANUEL_RELAY
+  #define TYPE_ID                  "homebuild"
+  #define TYPE_STRING              "ESP with relay module"
+
+  #define LED0    02
+
+  static byte Relays[] = { RELAYS };
+  static byte Buttons[] = { BUTTONS };
+#endif
 
 
 #define HOSTNAME "ESP"
@@ -87,35 +103,37 @@ GPIO14 Pin 5 der Stiftleiste – nur Sonoff Switch
 #define MQTT_UPDATE_INTERVAL     30 * 60 * 1000L
 #define DHT_MEASURE_INTERVAL          15 * 1000L
 
+#define RELAYS_COUNT   (sizeof(Relays))
+#define BUTTONS_COUNT  (sizeof(Buttons))
 
 
-String hostname;
-String mqttTopic;
+static String hostname;
+static String mqttTopic;
 
 
 //------------------------------------------------------------------------------------------------------------
 
-//char          *hostname   = NULL;
-//char          *mqtt_topic = NULL;
 
-boolean       btn0 = false;
-boolean       btn1 = false;
+static boolean       btn[BUTTONS_COUNT];
 
-float         temperature = -99;
-float         humidity    = -99;
-
+#ifdef DHT_GPIO
+static float         temperature = -99;
+static float         humidity    = -99;
+#endif
 //EasyOTA       OTA;
 
-WiFiClient    wifiClient;
-PubSubClient  mqttClient(wifiClient);
-DHTesp        dht;
+static WiFiClient    wifiClient;
+static PubSubClient  mqttClient(wifiClient);
 
+#ifdef DHT_GPIO
+static DHTesp        dht;
+#endif
 
 //------------------------------------------------------------------------------------------------------------
 
-int lastProcDL;
+static int lastProcDL;
 
-void setupOTA() {
+static void setupOTA() {
   // Port defaults to 8266
   // ArduinoOTA.setPort(8266);
 
@@ -171,67 +189,72 @@ void setupOTA() {
 //------------------------------------------------------------------------------------------------------------
 
 #define strequal(s,ss) (strcmp((s),(ss))==0)
-
-char *strmem(const char *s) {
+/*
+static char *strmem(const char *s) {
     char *ret = (char *) malloc(strlen(s) + 1);
     strcpy(ret, s);
     return ret;
 }
-
+*/
 //------------------------------------------------------------------------------------------------------------
 
-// Credits see
-//  https://github.com/thvdburgt/KnR-The-C-Programming-Language-Solutions/blob/master/Chapter%205/5-4/strend.c
-int strend(const char *s, const char *t) {
-    int ls, lt;
+#ifdef DHT_GPIO
 
-    for (ls = 0; * (s + ls); ++ls); /* find length of s */
-    for (lt = 0; * (t + lt); ++lt); /* find length of t */
-    if (ls >= lt) {         /* check if t can fit in s */
-        s += ls - lt;       /* point s to where t should start */
-        while (*s++ == *t++)
-            if (!*s)        /* we found end of s and therefore t */
-                return 1;   /* so return 1 */
-    }
-    return 0;
-}
+static char floatBuf[10];
 
-//------------------------------------------------------------------------------------------------------------
-
-char floatBuf[10];
-
-char *ftos(float f) {
+static char *ftos(float f) {
     snprintf(floatBuf, sizeof(floatBuf), "%1.1f", f);
     return floatBuf;
 }
-
+#endif
 //------------------------------------------------------------------------------------------------------------
 
-void initGpio() {
-    pinMode(RELAY_0_GPIO, OUTPUT);
-    digitalWrite(RELAY_0_GPIO, LOW);
-    pinMode(BTN0_GPIO, INPUT_PULLUP);
-    btn0 = digitalRead(BTN0_GPIO);
+static bool readRelay(int r) {
+#ifdef INVERT_RELAY
+  return !digitalRead(Relays[r]);
+#else
+  return digitalRead(Relays[r]);
+#endif
+}
 
+static void switchRelay(int r, bool on) {
+#ifdef INVERT_RELAY
+      digitalWrite(Relays[r], !on);
+#else
+      digitalWrite(Relays[r], on);
+#endif
+}
+
+static bool readButton(int b) {
+#ifdef INVERT_BUTTON
+  return !digitalRead(Buttons[b]);
+#else
+  return digitalRead(Buttons[b]);
+#endif
+}
+
+static void initGpio() {
+    if (RELAYS_COUNT > 0) {
+      for (int i=0; i<RELAYS_COUNT; i++) {
+        pinMode(Relays[i], OUTPUT);
+        switchRelay(i, LOW);
+      }
+    }
+    if (BUTTONS_COUNT > 0) {
+      for (int i=0; i<BUTTONS_COUNT; i++) {
+        pinMode(Buttons[i], INPUT_PULLUP);
+        btn[i] = readButton(i);
+      }
+    }
 
 #ifdef LED0
     pinMode(LED0, OUTPUT);
 #endif
-
-#ifdef RELAY_1_GPIO
-    pinMode(RELAY_1_GPIO, OUTPUT);
-    digitalWrite(RELAY_1_GPIO, LOW);
-#endif
-
-#ifdef BTN1_GPIO
-    btn1 = digitalRead(BTN1_GPIO);
-    pinMode(BTN1_GPIO, INPUT_PULLUP);
-#endif
 }
 
 //------------------------------------------------------------------------------------------------------------
 
-void mqttPublish(String state, String msg) {
+static void mqttPublish(String state, String msg) {
 
 //    String topic = String(mqtt_topic) + "state/" + state;
     String topic = mqttTopic + "state/" + state;
@@ -254,29 +277,33 @@ void mqttPublish(String state, String msg) {
 
 //------------------------------------------------------------------------------------------------------------
 
-void publishRelay0() {
-    mqttPublish("relay/0", digitalRead(RELAY_0_GPIO) ? "on" : "off");
+static void publishRelay(int r) {
+    mqttPublish("relay/" + String(r, 10), readRelay(r) ? "on" : "off");
 }
 
-void publishRelay1() {
-#ifdef RELAY_1_GPIO
-    mqttPublish("relay/1", digitalRead(RELAY_1_GPIO) ? "on" : "off");
-#endif
+static void publishRelays() {
+  if (RELAYS_COUNT > 0) {
+      for (int i=0; i<RELAYS_COUNT; i++) {
+        publishRelay(i);
+      }
+  }
 }
 
-void publishBtn0() {
-    mqttPublish("button/0", !btn0 ? "true" : "false");
+static void publishBtn(int b) {
+    mqttPublish("button/" + String(b, 10), btn[b] ? "true" : "false");
 }
 
-void publishBtn1() {
-#ifdef BTN1_GPIO
-    mqttPublish("button/1", !btn1 ? "true" : "false");
-#endif
+static void publishBtns() {
+  if (BUTTONS_COUNT > 0) {
+      for (int i=0; i<RELAYS_COUNT; i++) {
+        publishBtn(i);
+      }
+  }
 }
 
 //------------------------------------------------------------------------------------------------------------
 
-void publishDHT(boolean forceMqtt) {
+static void publishDHT(boolean forceMqtt) {
 #ifdef DHT_GPIO
     TempAndHumidity th = dht.getTempAndHumidity();
     if (dht.getStatus() == 0) {
@@ -308,18 +335,16 @@ void publishDHT(boolean forceMqtt) {
 }
 //------------------------------------------------------------------------------------------------------------
 
-void publishRelayState() {
+static void publishRelayState() {
     mqttPublish("rssi", String(WiFi.RSSI()));
-    publishRelay0();
-    publishRelay1();
-    publishBtn0();
-    publishBtn1();
+    publishRelays();
+    publishBtns();
     publishDHT(true);
 }
 
 //------------------------------------------------------------------------------------------------------------
 
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
+static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
     char message[20];
     char *d = message;
@@ -336,25 +361,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     boolean isOn = false;
     if (strequal(message, "on")) isOn = true;
 
-    if (strend(topic, "/set/relay/0")) {
-        digitalWrite(RELAY_0_GPIO, isOn ? HIGH : LOW);
-        //digitalWrite(STATUS_GPIO, isOn ? HIGH : LOW);
-        publishRelay0();
+    String topicString = String(topic);
+
+    for (int i=0; i<RELAYS_COUNT; i++) {
+      if (topicString.endsWith("/set/relay/" + String(i, 10))) {
+        switchRelay(i, isOn);
+        publishRelay(i);
         return;
+      }
     }
-#ifdef RELAY_1_GPIO
-    if (strend(topic, "/set/relay/1")) {
-        digitalWrite(RELAY_1_GPIO, isOn ? HIGH : LOW);
-        publishRelay1();
-        return;
-    }
-#endif
+
 }
 
 //------------------------------------------------------------------------------------------------------------
 
 
-void buildHostname() {
+static void buildHostname() {
   // 5C:CF:7F:82:2C:1E
   char buf[100];
   strcpy(buf,WiFi.macAddress().substring(9).c_str()); // Skip first 3 bytes
@@ -394,8 +416,18 @@ void setup() {
     Serial.println("MQTT brocker   : " + String(MQTT_SERVER));
     Serial.println("SSID           : " WIFI_SSID);
     Serial.println("Licence        : Use without limitations...");
+    #ifdef LED0
+      Serial.println("LED at pin     : " + String(LED0, 10));
+    #endif
+    Serial.println("Relay count    : " + String(RELAYS_COUNT, 10));
+    for (int i=0; i<RELAYS_COUNT; i++) {
+      Serial.printf("        Relay  : %d at pin %d\n",i,Relays[i]);
+    }
+    Serial.println("Button count   : " + String(BUTTONS_COUNT, 10));
+    for (int i=0; i<BUTTONS_COUNT; i++) {
+      Serial.printf("        Button : %d at pin %d\n",i,Buttons[i]);
+    }
 
-   // String topic = String(mqtt_topic);
 
 #ifdef DHT_GPIO
     dht.setup(DHT_GPIO, DHTesp::DHT11);
@@ -404,17 +436,22 @@ void setup() {
     Serial.println("DHT State      : " + String(dht.getStatusString()));
 #endif
     Serial.println("===============================================================================================");
-    Serial.println("MQTT commands  : " + mqttTopic + "set/relay/[0/1]    message [on/off]");
+    Serial.println("MQTT commands  : " + mqttTopic + "set/relay/0        message [on/off]");
+    if (RELAYS_COUNT > 0) {
+      for (int i=1; i<RELAYS_COUNT; i++)
+        Serial.printf("MQTT commands  : %sset/relay/%d        message [on/off]\n", mqttTopic.c_str(), i);
+    }
     Serial.println("MQTT messages  : " + mqttTopic + "online             message [version...]");
     Serial.println("                 " + mqttTopic + "type               message [" TYPE_ID "]");
     Serial.println("                 " + mqttTopic + "info               message [" TYPE_STRING "]");
-#ifdef BTN1_GPIO
-    Serial.println("                 " + mqttTopic + "state/relay/[0/1]  message [on/off]");
-    Serial.println("                 " + mqttTopic + "state/button/[0/1] message [true/false]");
-#else
-    Serial.println("                 " + mqttTopic + "state/relay/[0]    message [on/off]");
-    Serial.println("                 " + mqttTopic + "state/button/[0]   message [true/false]");
-#endif
+
+    for (int i=0; i<RELAYS_COUNT; i++) {
+      Serial.printf("                 %sstate/relay/%d      message [on/off]\n",mqttTopic.c_str(),i);
+    }
+    for (int i=0; i<BUTTONS_COUNT; i++) {
+      Serial.printf("                 %sstate/button/%d     message [true/false]\n",mqttTopic.c_str(),i);
+    }
+
 
 #ifdef DHT_GPIO
     Serial.println("                 " + mqttTopic + "state/temperature  message in °C [25.8], with DHT11");
@@ -444,10 +481,8 @@ void setup() {
   
   setupOTA();
 
-    //    Serial.println("IP is            " + String(WiFi.localIP().toString()));
-
-    mqttClient.setServer(MQTT_SERVER, 1883);
-    mqttClient.setCallback(mqttCallback);
+  mqttClient.setServer(MQTT_SERVER, 1883);
+  mqttClient.setCallback(mqttCallback);
 
 }
 
@@ -455,9 +490,10 @@ void setup() {
 //------------------------------------------------------------------------------------------------------------
 
 
-unsigned long  lastPub = 0;
-unsigned long  lastDht = 0;
-
+static unsigned long  lastPub = 0;
+#ifdef DHT_GPIO
+static unsigned long  lastDht = 0;
+#endif
 void loop() {
 
   if (WiFi.waitForConnectResult() != WL_CONNECTED) {
@@ -466,8 +502,6 @@ void loop() {
 
     //OTA.loop();
     ArduinoOTA.handle();
-
-
 
     mqttClient.loop();
 
@@ -500,14 +534,6 @@ void loop() {
             mqttPublish("cpu"     , CPU_TYPE);
             mqttPublish("cpu-freq", ltoa(F_CPU, itoabuf, 10));
 
-
-            //mqttPublish("motion", "state/pin/led"    , itoa(LED_OUTPUT_PIN, itoabuf, 10));
-            //mqttPublish("motion", "state/pin/motion" , itoa(MOTION_INPUT_PIN, itoabuf, 10));
-            //mqttPublish("motion", "state/pin/433mhz"  , itoa(MOTION_INPUT_PIN, itoabuf, 10));
-
-
-
-
             publishRelayState();
         } else {
             Serial.println("MQTT connection to " MQTT_SERVER " failed.");
@@ -534,36 +560,31 @@ void loop() {
 
     }
 
-    if (digitalRead(BTN0_GPIO) != btn0) {
-        btn0 = digitalRead(BTN0_GPIO);  // Pressed == LOW
-        publishBtn0();
+    if (BUTTONS_COUNT > 0) {
+      for (int i=0; i<BUTTONS_COUNT; i++) {
 
-        if (!btn0) {
-          digitalWrite(RELAY_0_GPIO, !digitalRead(RELAY_0_GPIO));
-          publishRelay0();
+        if (digitalRead(Buttons[i]) != btn[i]) {
+          btn[i] = readButton(i);
+          publishBtn(i);
+
+          if (btn[i] && i < RELAYS_COUNT) {
+            switchRelay(i, !readRelay(i));
+            publishRelay(i);
+          }
         }
-        
+      }
     }
 
 #ifdef LED0
-    if (digitalRead(BTN0_GPIO) == LOW ||  digitalRead(RELAY_0_GPIO) != LOW) {
+    bool hasBtn = false;
+    for (int i=0; i<BUTTONS_COUNT; i++) {
+      if (!btn[i]) hasBtn = true;
+    }
+    if (hasBtn) {
       digitalWrite(LED0, LOW);
     }
     else {
       digitalWrite(LED0, HIGH);
-    }
-#endif
-
-#ifdef BTN1_GPIO
-    if (digitalRead(BTN1_GPIO) != btn1) {
-        btn1 = digitalRead(BTN1_GPIO);  // Pressed == LOW
-
-        if (!btn1) {
-          digitalWrite(RELAY_1_GPIO, !digitalRead(RELAY_1_GPIO));
-          publishRelay0();
-        }
-
-        publishBtn1();
     }
 #endif
 
@@ -574,7 +595,7 @@ void loop() {
     }
 #endif
 
-    delay(50);
+    delay(10);
 }
 
 //------------------------------------------------------------------------------------------------------------

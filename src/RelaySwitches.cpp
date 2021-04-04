@@ -42,12 +42,15 @@
 
 #define MQTT_SERVER              "mqtt"
 
+//------------------------------------------------------------------------------------------------------------
+
 #ifdef ELECTRODRAGON_RELAY
   #define TYPE_ID                  "electrodragon"
   #define TYPE_STRING              "www.electrodragon.com relay board with optional DHT11/DHT22"
 
-  #define INVERT_RELAY
+  #define noINVERT_RELAY
   #define INVERT_BUTTON
+  #define noINVERT_LED
 
   #define RELAY_0_GPIO  12  //  GPIO 12
   #define RELAY_1_GPIO  13  //  GPIO 13
@@ -60,11 +63,14 @@
   static byte Buttons[] = { BTN0_GPIO, BTN1_GPIO };
 #endif  // ELECTRODRAGON_RELAY
 
+//------------------------------------------------------------------------------------------------------------
+
 #ifdef SONOFF_RELAY
   #define TYPE_ID                  "sonoff"
   #define TYPE_STRING              "Sonoff basic 10A relay board"
 
-  #define INVERT_RELAY
+  #define noINVERT_RELAY
+  #define INVERT_LED
   #define INVERT_BUTTON
   
 /*
@@ -84,6 +90,8 @@ GPIO14 Pin 5 der Stiftleiste – nur Sonoff Switch
   #define LED0    13
 #endif  // SONOFF_RELAY
 
+//------------------------------------------------------------------------------------------------------------
+
 #ifdef MANUEL_RELAY
   #define TYPE_ID                  "homebuild"
   #define TYPE_STRING              "ESP with relay module"
@@ -94,6 +102,7 @@ GPIO14 Pin 5 der Stiftleiste – nur Sonoff Switch
   static byte Buttons[] = { BUTTONS };
 #endif
 
+//------------------------------------------------------------------------------------------------------------
 
 #define HOSTNAME "ESP"
 
@@ -103,16 +112,14 @@ GPIO14 Pin 5 der Stiftleiste – nur Sonoff Switch
 #define MQTT_UPDATE_INTERVAL     30 * 60 * 1000L
 #define DHT_MEASURE_INTERVAL          15 * 1000L
 
-#define RELAYS_COUNT   (sizeof(Relays))
-#define BUTTONS_COUNT  (sizeof(Buttons))
+#define RELAYS_COUNT   ((int)sizeof(Relays))
+#define BUTTONS_COUNT  ((int)sizeof(Buttons))
 
 
 static String hostname;
 static String mqttTopic;
 
-
 //------------------------------------------------------------------------------------------------------------
-
 
 static boolean       btn[BUTTONS_COUNT];
 
@@ -128,6 +135,10 @@ static PubSubClient  mqttClient(wifiClient);
 #ifdef DHT_GPIO
 static DHTesp        dht;
 #endif
+
+static void mqttPublish(String state, String msg);
+#define strequal(s,ss) (strcmp((s),(ss))==0)
+
 
 //------------------------------------------------------------------------------------------------------------
 
@@ -188,18 +199,7 @@ static void setupOTA() {
 
 //------------------------------------------------------------------------------------------------------------
 
-#define strequal(s,ss) (strcmp((s),(ss))==0)
-/*
-static char *strmem(const char *s) {
-    char *ret = (char *) malloc(strlen(s) + 1);
-    strcpy(ret, s);
-    return ret;
-}
-*/
-//------------------------------------------------------------------------------------------------------------
-
 #ifdef DHT_GPIO
-
 static char floatBuf[10];
 
 static char *ftos(float f) {
@@ -207,31 +207,50 @@ static char *ftos(float f) {
     return floatBuf;
 }
 #endif
+
+//------------------------------------------------------------------------------------------------------------
+
+static void switchLed(bool on) {
+#ifdef LED0
+  #ifdef INVERT_LED
+    digitalWrite(LED0, !on);
+  #else
+    digitalWrite(LED0, on);
+  #endif
+#endif
+}
+
 //------------------------------------------------------------------------------------------------------------
 
 static bool readRelay(int r) {
 #ifdef INVERT_RELAY
-  return !digitalRead(Relays[r]);
+    return !digitalRead(Relays[r]);
 #else
-  return digitalRead(Relays[r]);
+    return digitalRead(Relays[r]);
 #endif
 }
+
+//------------------------------------------------------------------------------------------------------------
 
 static void switchRelay(int r, bool on) {
 #ifdef INVERT_RELAY
-      digitalWrite(Relays[r], !on);
+    digitalWrite(Relays[r], !on);
 #else
-      digitalWrite(Relays[r], on);
+   digitalWrite(Relays[r], on);
 #endif
 }
 
+//------------------------------------------------------------------------------------------------------------
+
 static bool readButton(int b) {
 #ifdef INVERT_BUTTON
-  return !digitalRead(Buttons[b]);
+    return !digitalRead(Buttons[b]);
 #else
-  return digitalRead(Buttons[b]);
+    return digitalRead(Buttons[b]);
 #endif
 }
+
+//------------------------------------------------------------------------------------------------------------
 
 static void initGpio() {
     if (RELAYS_COUNT > 0) {
@@ -281,6 +300,8 @@ static void publishRelay(int r) {
     mqttPublish("relay/" + String(r, 10), readRelay(r) ? "on" : "off");
 }
 
+//------------------------------------------------------------------------------------------------------------
+
 static void publishRelays() {
   if (RELAYS_COUNT > 0) {
       for (int i=0; i<RELAYS_COUNT; i++) {
@@ -289,9 +310,13 @@ static void publishRelays() {
   }
 }
 
+//------------------------------------------------------------------------------------------------------------
+
 static void publishBtn(int b) {
     mqttPublish("button/" + String(b, 10), btn[b] ? "true" : "false");
 }
+
+//------------------------------------------------------------------------------------------------------------
 
 static void publishBtns() {
   if (BUTTONS_COUNT > 0) {
@@ -348,7 +373,7 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
     char message[20];
     char *d = message;
-    int len = length;
+    unsigned int len = length;
     if (len >= sizeof(message)) len = sizeof(message) - 1;
     while (len-- > 0) *d++ = (char) (*payload++);
     *d = '\0';
@@ -375,7 +400,6 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 //------------------------------------------------------------------------------------------------------------
 
-
 static void buildHostname() {
   // 5C:CF:7F:82:2C:1E
   char buf[100];
@@ -394,11 +418,13 @@ static void buildHostname() {
   mqttTopic = "switch/" HOSTNAME  "_" + macString + String("/");   // perficed with function
 }
 
+//------------------------------------------------------------------------------------------------------------
+
 void setup() {
     Serial.begin(115200);
+    Serial.println();
+    Serial.println();
     
-    delay(100);
-
     Serial.println("Setup GPIO");
     initGpio();
     Serial.println("Setup GPIO DONE");
@@ -439,7 +465,7 @@ void setup() {
     Serial.println("MQTT commands  : " + mqttTopic + "set/relay/0        message [on/off]");
     if (RELAYS_COUNT > 0) {
       for (int i=1; i<RELAYS_COUNT; i++)
-        Serial.printf("MQTT commands  : %sset/relay/%d        message [on/off]\n", mqttTopic.c_str(), i);
+        Serial.printf("                 %sset/relay/%d        message [on/off]\n", mqttTopic.c_str(), i);
     }
     Serial.println("MQTT messages  : " + mqttTopic + "online             message [version...]");
     Serial.println("                 " + mqttTopic + "type               message [" TYPE_ID "]");
@@ -486,14 +512,13 @@ void setup() {
 
 }
 
-
 //------------------------------------------------------------------------------------------------------------
-
 
 static unsigned long  lastPub = 0;
 #ifdef DHT_GPIO
 static unsigned long  lastDht = 0;
 #endif
+
 void loop() {
 
   if (WiFi.waitForConnectResult() != WL_CONNECTED) {
@@ -506,9 +531,7 @@ void loop() {
     mqttClient.loop();
 
     if (!mqttClient.connected()) {
-#ifdef LED0
-        digitalWrite(LED0, HIGH);
-#endif
+        switchLed(true);
 
         Serial.println("Attempting MQTT broker: " MQTT_SERVER);
         if (mqttClient.connect(hostname.c_str())) {
@@ -537,16 +560,12 @@ void loop() {
             publishRelayState();
         } else {
             Serial.println("MQTT connection to " MQTT_SERVER " failed.");
-#ifdef LED0
             for (byte i=0; i<30; i++) {
-               digitalWrite(LED0, LOW);
+               switchLed(false);
                delay(500);
-               digitalWrite(LED0, HIGH);
+               switchLed(true);
                delay(500);
             }
-#else
-            delay(1000 * 30);
-#endif
             return;
         }
 
@@ -563,7 +582,7 @@ void loop() {
     if (BUTTONS_COUNT > 0) {
       for (int i=0; i<BUTTONS_COUNT; i++) {
 
-        if (digitalRead(Buttons[i]) != btn[i]) {
+        if (readButton(i) != btn[i]) {
           btn[i] = readButton(i);
           publishBtn(i);
 
@@ -575,18 +594,16 @@ void loop() {
       }
     }
 
-#ifdef LED0
-    bool hasBtn = false;
-    for (int i=0; i<BUTTONS_COUNT; i++) {
-      if (!btn[i]) hasBtn = true;
+    bool hasRelay = false;
+    for (int i=0; i<RELAYS_COUNT; i++) {
+      if (readRelay(i)) hasRelay = true;
     }
-    if (hasBtn) {
-      digitalWrite(LED0, LOW);
+    if (hasRelay) {
+      switchLed(true);
     }
     else {
-      digitalWrite(LED0, HIGH);
+      switchLed(false);
     }
-#endif
 
 #ifdef DHT_GPIO
     if (millis() - lastDht > DHT_MEASURE_INTERVAL) {

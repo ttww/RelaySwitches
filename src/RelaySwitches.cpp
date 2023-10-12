@@ -32,7 +32,9 @@ https://github.com/jeroenvermeulen/JeVe_EasyOTA/blob/master/JeVe_EasyOTA.h
 
 #include <EEPROM.h>
 
+#ifdef DHT_GPIO
 #include "DHTesp.h" // V 1.0.12 !
+#endif
 #include "PubSubClient.h"
 
 #define noELECTRODRAGON_RELAY
@@ -94,6 +96,23 @@ static byte Buttons[] = { BTN0_GPIO };
 #define LED0 13
 #endif // SONOFF_RELAY
 
+#ifdef SONOFF_4CHPRO_RELAY
+#define TYPE_ID "sonoff-4CH"
+#define TYPE_STRING "Sonoff 4CHPRO 40A relay board"
+
+#define LED0 13
+
+#define RELAYS 12, 5, 4, 15
+#define BUTTONS 0, 9, 10, 14
+#define noINVERT_RELAY
+#define INVERT_BUTTON
+#define INVERT_LED
+
+static byte Relays[] = { RELAYS };
+static byte Buttons[] = { BUTTONS };
+
+#endif
+
 //------------------------------------------------------------------------------------------------------------
 
 #ifdef MANUEL_RELAY
@@ -124,7 +143,7 @@ static String mqttTopic;
 
 //------------------------------------------------------------------------------------------------------------
 
-#define EEPROM_WRITE_INTERVAL 1000 * 60 * 5 // write max. every 5 minutes if needed.
+#define EEPROM_WRITE_INTERVAL 1000l * 60 * 5 // write max. every 5 minutes if needed.
 
 #define EEPROM_SIGNATURE 0x12344321
 #define EEPROM_VERSION 1
@@ -316,6 +335,7 @@ static bool readRelay(int r)
 
 static void switchRelay(int r, bool onOffState)
 {
+	//Serial.printf("Switch %d to %d\n", r, onOffState);
 	if (readRelay(r) == onOffState)
 		return;
 

@@ -40,14 +40,14 @@ https://github.com/jeroenvermeulen/JeVe_EasyOTA/blob/master/JeVe_EasyOTA.h
 #define noELECTRODRAGON_RELAY
 #define noSONOFF_RELAY
 
-#define VERSION "2.0"
-#define MQTT_HELLO "ESPxx relay MQTT gateway, version " VERSION ", Thomas Welsch, ttww@gmx.de, " __TIME__ " / " __DATE__
+#define VERSION "2.1"
+#define MQTT_HELLO "ESPxx relay MQTT gateway, version " VERSION " (" BUILD_TAG "), Thomas Welsch, ttww@gmx.de, " __TIME__ " / " __DATE__
 
-#include "secrets.h"
+#include "arduino_secrets.h"
 
-#define WIFI_SSID SECRET_WIFI_SSID
-#define WIFI_PASSWORD SECRET_WIFI_PASSWORD
-#define MQTT_SERVER SECRET_MQTT_SERVER
+#define WIFI_SSID SECRET_SSID
+#define WIFI_PASSWORD SECRET_PASSWD
+#define MQTT_SERVER MQTT_HOST
 
 //------------------------------------------------------------------------------------------------------------
 
@@ -521,6 +521,7 @@ static void publishInfoState()
 	mqttPublish("online", MQTT_HELLO);
 	mqttPublish("type", TYPE_ID);
 	mqttPublish("info", TYPE_STRING);
+	mqttPublish("version", VERSION);
 	mqttPublish("mqtthost", MQTT_SERVER);
 	mqttPublish("sid", WIFI_SSID);
 	mqttPublish("hostname", hostname);

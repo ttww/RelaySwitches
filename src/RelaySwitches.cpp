@@ -32,9 +32,6 @@ https://github.com/jeroenvermeulen/JeVe_EasyOTA/blob/master/JeVe_EasyOTA.h
 
 #include <EEPROM.h>
 
-#ifdef DHT_GPIO
-#include "DHTesp.h" // V 1.0.12 !
-#endif
 #include "PubSubClient.h"
 
 #define noELECTRODRAGON_RELAY
@@ -165,6 +162,12 @@ typedef struct {
 EEPROMSettings_V1 eepromSettings;
 static boolean eepromNeedsWrite = false;
 static boolean eepromWasRead = false;
+
+//------------------------------------------------------------------------------------------------------------
+
+#ifdef DHT_GPIO
+#include "DHTesp.h" // V 1.0.12 !
+#endif
 
 //------------------------------------------------------------------------------------------------------------
 
